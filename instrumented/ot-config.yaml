@@ -1,0 +1,27 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+processors:
+  batch:
+    send_batch_size: 256
+    send_batch_max_size: 512
+    timeout: 5s
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 25000
+extensions:
+  health_check: {}
+exporters:
+  logging:
+    loglevel: debug
+  otlphttp:
+    traces_endpoint: ""
+    insecure: true
+service:
+  extensions: [health_check]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [logging, otlphttp]
