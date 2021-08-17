@@ -48,4 +48,6 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+
+	fmt.Printf("Response Received: %s\n", body)
 }
