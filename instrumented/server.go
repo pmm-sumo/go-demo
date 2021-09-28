@@ -24,19 +24,29 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	oteltrace "go.opentelemetry.io/otel/trace"
+	otelmetric "go.opentelemetry.io/otel/metric"
+	"go.opentelemetry.io/otel/metric/global"
 
 	"example.com/demo/v2/instrumented/helper"
 )
 
 var tracer = otel.Tracer("mux-server")
+var meter = global.Meter("demo-meter")
 
 func main() {
 	shutdown := helper.InitTracer("demo-server")
 	defer shutdown()
 
+	metricShutdown := helper.InitMeter()
+	defer metricShutdown()
+
+	userCounter := otelmetric.Must(meter).NewInt64Counter("users_req_count",
+		otelmetric.WithDescription("Number of requests to /users"))
+
 	r := mux.NewRouter()
 	r.Use(otelmux.Middleware("my-server"))
 	r.HandleFunc("/users/{id:[0-9]+}", func(w http.ResponseWriter, r *http.Request) {
+		userCounter.Add(context.Background(), 1)
 		fmt.Printf("Handling request: %q\n", r.RequestURI)
 		for k, v := range r.Header {
 			fmt.Printf("  %q => %q\n", k, v)

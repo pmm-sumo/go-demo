@@ -17,6 +17,7 @@ package helper
 import (
 	"context"
 	"log"
+	"time"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
@@ -26,6 +27,14 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.4.0"
 	"google.golang.org/grpc"
+
+	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric"
+	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
+	"go.opentelemetry.io/otel/sdk/metric/selector/simple"
+
+	"go.opentelemetry.io/otel/metric/global"
+	controller "go.opentelemetry.io/otel/sdk/metric/controller/basic"
+	processor "go.opentelemetry.io/otel/sdk/metric/processor/basic"
 )
 
 func handleErr(err error) {
@@ -37,6 +46,39 @@ func handleErr(err error) {
 func InitTracer(serviceName string) func() {
 	return initOtlpTracer(serviceName)
 	//return initLogTracer()
+}
+
+func InitMeter() func() {
+	return initOtlpMeter()
+}
+
+func initOtlpMeter() func() {
+	ctx := context.Background()
+	client := otlpmetricgrpc.NewClient(otlpmetricgrpc.WithInsecure())
+	exporter, err := otlpmetric.New(ctx, client)
+	handleErr(err)
+
+	pusher := controller.New(
+		processor.New(
+			simple.NewWithExactDistribution(),
+			exporter,
+		),
+		controller.WithExporter(exporter),
+		controller.WithCollectPeriod(2*time.Second),
+	)
+	global.SetMeterProvider(pusher.MeterProvider())
+
+	if err := pusher.Start(ctx); err != nil {
+		handleErr(err)
+	}
+
+	return func() {
+		ctx, cancel := context.WithTimeout(ctx, time.Second)
+		defer cancel()
+		if err := exporter.Shutdown(ctx); err != nil {
+			handleErr(err)
+		}
+	}
 }
 
 func initOtlpTracer(serviceName string) func() {
