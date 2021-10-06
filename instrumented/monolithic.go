@@ -72,6 +72,10 @@ func repository(ctx context.Context) {
 			semconv.ExceptionMessageKey.String(err.Error()))
 		span.AddEvent(semconv.ExceptionEventName, opts)
 	}
+	span.AddEvent("Complex attribute with array",
+		oteltrace.WithAttributes(
+			attribute.Key("custom.attribute").StringSlice([]string{"foo", "bar", "claz"})))
+
 	time.Sleep(time.Duration(30) * time.Millisecond)
 	defer span.End()
 }
