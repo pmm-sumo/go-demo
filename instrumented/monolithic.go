@@ -16,10 +16,14 @@ package main
 
 import (
 	"context"
+	"errors"
 	"example.com/demo/v2/instrumented/helper"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	semconv "go.opentelemetry.io/otel/semconv/v1.4.0"
 	oteltrace "go.opentelemetry.io/otel/trace"
+	"reflect"
 	"time"
 )
 
@@ -59,17 +63,27 @@ func repository(ctx context.Context) {
 		attribute.String("query-id", "get-user-details"),
 		attribute.String("service.name", "backend-query-repository")))
 	time.Sleep(time.Duration(50) * time.Millisecond)
-	db(newCtx)
+	err := db(newCtx)
+
+	if err != nil {
+		span.SetStatus(codes.Error, "DB Error")
+		opts := oteltrace.WithAttributes(
+			semconv.ExceptionTypeKey.String(reflect.TypeOf(err).String()),
+			semconv.ExceptionMessageKey.String(err.Error()))
+		span.AddEvent(semconv.ExceptionEventName, opts)
+	}
 	time.Sleep(time.Duration(30) * time.Millisecond)
 	defer span.End()
 }
 
-func db(ctx context.Context) {
+func db(ctx context.Context) error {
 	_, span := monoTracer.Start(ctx, "SELECT x,y,z FROM abc WHERE user_id = ?",
 		oteltrace.WithAttributes(attribute.String("session-id", "abcde1234"),
 		attribute.String("service.name", "db")))
-	time.Sleep(time.Duration(350) * time.Millisecond)
 	defer span.End()
+	time.Sleep(time.Duration(350) * time.Millisecond)
+	err := errors.New("no records found in DB")
+	return err
 }
 
 
