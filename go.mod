@@ -16,4 +16,5 @@ require (
 	go.opentelemetry.io/otel/sdk/metric v0.23.0
 	go.opentelemetry.io/otel/trace v1.0.0
 	google.golang.org/grpc v1.40.0
+	github.com/sirupsen/logrus v1.8.1
 )
