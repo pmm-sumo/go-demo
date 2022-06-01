@@ -23,10 +23,11 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	stdout "go.opentelemetry.io/otel/exporters/stdout/stdouttrace"
+	zipkin "go.opentelemetry.io/otel/exporters/zipkin"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
-	semconv "go.opentelemetry.io/otel/semconv/v1.4.0"
+	semconv "go.opentelemetry.io/otel/semconv/v1.9.0"
 	oteltrace "go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
 
@@ -39,6 +40,11 @@ import (
 	processor "go.opentelemetry.io/otel/sdk/metric/processor/basic"
 )
 
+const (
+	enableZipkin = true
+	enableOtlp   = false
+)
+
 func handleErr(err error) {
 	if err != nil {
 		log.Fatal(err)
@@ -46,7 +52,7 @@ func handleErr(err error) {
 }
 
 func InitTracer(serviceName string) func() {
-	return initOtlpTracer(serviceName)
+	return initTracer(serviceName)
 	//return initLogTracer()
 }
 
@@ -56,7 +62,7 @@ func InitMeter() func() {
 
 func LogrusFields(span oteltrace.Span) logrus.Fields {
 	return logrus.Fields{
-		"span_id": span.SpanContext().SpanID().String(),
+		"span_id":  span.SpanContext().SpanID().String(),
 		"trace_id": span.SpanContext().TraceID().String(),
 	}
 }
@@ -68,14 +74,14 @@ func initOtlpMeter() func() {
 	handleErr(err)
 
 	pusher := controller.New(
-		processor.New(
-			simple.NewWithExactDistribution(),
+		processor.NewFactory(
+			simple.NewWithInexpensiveDistribution(),
 			exporter,
 		),
 		controller.WithExporter(exporter),
 		controller.WithCollectPeriod(2*time.Second),
 	)
-	global.SetMeterProvider(pusher.MeterProvider())
+	global.SetMeterProvider(pusher)
 
 	if err := pusher.Start(ctx); err != nil {
 		handleErr(err)
@@ -90,7 +96,7 @@ func initOtlpMeter() func() {
 	}
 }
 
-func initOtlpTracer(serviceName string) func() {
+func initTracer(serviceName string) func() {
 	ctx := context.Background()
 
 	res, err := resource.New(ctx,
@@ -101,21 +107,39 @@ func initOtlpTracer(serviceName string) func() {
 	)
 	handleErr(err)
 
-	traceExporter, err := otlptracegrpc.New(ctx,
-		otlptracegrpc.WithInsecure(),
-		otlptracegrpc.WithEndpoint("localhost:4317"),
-		otlptracegrpc.WithDialOption(grpc.WithBlock()),
-	)
+	// Create stdout exporter to be able to retrieve
+	// the collected spans.
+	stdOutExporter, err := stdout.New(stdout.WithPrettyPrint())
 	handleErr(err)
 
 	// Register the trace exporter with a TracerProvider, using a batch
 	// span processor to aggregate spans before export.
-	bsp := sdktrace.NewBatchSpanProcessor(traceExporter)
+	bsp := sdktrace.NewBatchSpanProcessor(stdOutExporter)
 	tracerProvider := sdktrace.NewTracerProvider(
 		sdktrace.WithSampler(sdktrace.AlwaysSample()),
 		sdktrace.WithResource(res),
 		sdktrace.WithSpanProcessor(bsp),
 	)
+
+	if enableOtlp {
+		otlpTraceExporter, err := otlptracegrpc.New(ctx,
+			otlptracegrpc.WithInsecure(),
+			otlptracegrpc.WithEndpoint("localhost:4317"),
+			otlptracegrpc.WithDialOption(grpc.WithBlock()),
+		)
+		handleErr(err)
+
+		otlpBatcher := sdktrace.NewBatchSpanProcessor(otlpTraceExporter)
+		tracerProvider.RegisterSpanProcessor(otlpBatcher)
+	}
+
+	if enableZipkin {
+		zipkinExporter, err := zipkin.New("http://localhost:9411/api/v2/spans")
+		handleErr(err)
+
+		zipkinBatcher := sdktrace.NewBatchSpanProcessor(zipkinExporter)
+		tracerProvider.RegisterSpanProcessor(zipkinBatcher)
+	}
 
 	otel.SetTracerProvider(tracerProvider)
 	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(propagation.TraceContext{}, propagation.Baggage{}))

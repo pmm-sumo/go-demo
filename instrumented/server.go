@@ -17,6 +17,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"go.opentelemetry.io/otel/metric/instrument"
 	"net/http"
 
 	"github.com/gorilla/mux"
@@ -25,7 +26,6 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
-	otelmetric "go.opentelemetry.io/otel/metric"
 	"go.opentelemetry.io/otel/metric/global"
 	oteltrace "go.opentelemetry.io/otel/trace"
 
@@ -48,8 +48,11 @@ func main() {
 		FullTimestamp: true,
 	})
 
-	userCounter := otelmetric.Must(meter).NewInt64Counter("users_req_count",
-		otelmetric.WithDescription("Number of requests to /users"))
+	userCounter, err := meter.SyncInt64().
+		Counter("name.sum", instrument.WithDescription("Number of requests to /users"))
+	if err != nil {
+		logrus.Fatal(err)
+	}
 
 	r := mux.NewRouter()
 	r.Use(otelmux.Middleware("my-server"))

@@ -1,4 +1,5 @@
 receivers:
+  zipkin:
   otlp:
     protocols:
       grpc:
@@ -15,13 +16,12 @@ extensions:
 exporters:
   logging:
     loglevel: debug
-  otlphttp:
-    traces_endpoint: ""
-    insecure: true
+  # otlphttp:
+  #   endpoint: ""
 service:
   extensions: [health_check]
   pipelines:
     traces:
-      receivers: [otlp]
+      receivers: [otlp, zipkin]
       processors: [memory_limiter, batch]
-      exporters: [logging, otlphttp]
+      exporters: [logging]
